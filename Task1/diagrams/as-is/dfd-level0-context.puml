@@ -1,0 +1,49 @@
+@startuml DFD Level 0 - Медикаменте (AS-IS)
+!define RECTANGLE class
+
+title DFD Level 0: Контекстная диаграмма компании «Медикаменте» (AS-IS)
+
+' Стили для DFD
+skinparam rectangle {
+    BackgroundColor<<process>> LightBlue
+    BackgroundColor<<datastore>> LightYellow
+    BackgroundColor<<external>> LightGreen
+    BorderColor Black
+}
+
+' Внешние сущности (External Entities)
+rectangle "Пациент" as patient <<external>> #lightgreen
+rectangle "Медицинская\nлаборатория" as lab <<external>> #lightgreen
+rectangle "Налоговые\nорганы" as tax <<external>> #lightgreen
+rectangle "Банк" as bank <<external>> #lightgreen
+
+' Главный процесс
+rectangle "0\n\nМедикаменте\n(Медицинские услуги)" as medikamente <<process>> #lightblue
+
+' Потоки данных от/к внешним сущностям
+patient -down-> medikamente : **ПДн пациента**\n[ФИО, дата рождения,\nпаспорт, контакты,\nадрес, место работы]
+patient -down-> medikamente : **Оплата**\n[наличные/карта]
+
+medikamente -down-> patient : **Медицинские услуги**\n[приём, консультация]
+medikamente -down-> patient : **Документы**\n[чек, договор,\nрезультаты анализов]
+
+lab -right-> medikamente : **Результаты анализов**\n[ФИО, дата, вид анализа,\nрезультат] via Email
+
+medikamente -left-> tax : **Отчётность**\n[данные о платежах,\nналоговые документы]
+
+medikamente <--> bank : **Платёжные операции**\n[транзакции по картам]
+
+note bottom of medikamente
+  **КОНФИДЕНЦИАЛЬНЫЕ ДАННЫЕ В СИСТЕМЕ:**
+  
+  <color:red>▸ ПДн: ФИО, дата рождения, паспорт, контакты</color>
+  <color:red>▸ Специальные ПДн: диагнозы, анализы, история болезни</color>
+  <color:orange>▸ Финансовые: платежи, реквизиты</color>
+  
+  **ПРОБЛЕМЫ БЕЗОПАСНОСТИ:**
+  ✗ Нет шифрования
+  ✗ Нет контроля доступа
+  ✗ Нет аудита
+end note
+
+@enduml
