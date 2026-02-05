@@ -1,0 +1,110 @@
+@startuml MEDIKAMENTE Context Diagram (TO-BE MVP)
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+title МЕДИКАМЕНТЕ — Диаграмма контекста C4 (TO-BE MVP)\nPrivacy by Design Architecture
+
+' ==================== ACTORS ====================
+Person(patient, "Пациент", "Клиент медицинского центра.\nИспользует портал и мобильное приложение")
+Person(reception, "Сотрудник регистратуры", "Регистрация пациентов,\nуправление записями")
+Person(doctor, "Врач-специалист", "Проведение приёмов,\nработа с медкартами")
+Person(cassier, "Кассир", "Приём платежей,\nработа с ККМ")
+Person(bookkeeper, "Бухгалтер", "Финансовый учёт,\nотчётность")
+Person(warehouse, "Сотрудник склада", "Учёт ТМЦ и\nмедикаментов")
+Person(admin, "IT-администратор", "Управление системой,\nмониторинг безопасности")
+Person(dpo, "DPO / Compliance", "Контроль соответствия\nтребованиям ФЗ-152")
+
+' ==================== EXTERNAL SYSTEMS ====================
+System_Ext(laboratory, "Лаборатория анализов", "Внешняя медицинская\nлаборатория (API)")
+System_Ext(sms_gateway, "SMS/Push Gateway", "Оповещения пациентов\nо записях")
+System_Ext(payment_provider, "Платёжный провайдер", "Эквайринг,\nонлайн-платежи")
+System_Ext(fns, "ФНС / ОФД", "Фискализация,\nналоговая отчётность")
+
+' ==================== MAIN SYSTEM ====================
+System_Boundary(medikamente_system, "Система МЕДИКАМЕНТЕ (TO-BE)") {
+    
+    ' --- Privacy & Security Layer ---
+    System(privacy_layer, "Privacy & Security Layer", "Централизованный слой безопасности:\n- IAM (RBAC/ABAC)\n- Consent Management\n- Data Classification & Tagging\n- Key Management (KMS)\n- Audit & Logging\n- DLP Engine")
+    
+    ' --- Core Business Systems ---
+    System(patient_portal, "Портал пациента", "Личный кабинет:\n- Запись к врачу\n- Просмотр анализов\n- Управление согласиями\n- История посещений")
+    
+    System(staff_portal, "Портал сотрудников", "Рабочие места:\n- Регистратура\n- Врачи\n• Касса\n- Администрация")
+    
+    System(core_services, "Core Medical Services", "Бизнес-логика:\n- Управление пациентами\n- Медицинские карты\n- Расписание\n- CRM")
+    
+    System(payment_service, "Payment Service", "Платёжный шлюз:\n- Приём оплаты\n- Интеграция с ККМ\n- Фискализация")
+    
+    System(integration_hub, "Integration Hub", "API Gateway:\n- Интеграция с лабораторией\n- Внешние сервисы\n- Zero Trust validation")
+    
+    ' --- Data Layer ---
+    System(data_layer, "Secure Data Layer", "Защищённое хранение:\n- Encrypted at-rest (AES-256)\n- PostgreSQL + TDE\n- Document Storage\n- Tokenized PII")
+    
+    ' --- Analytics Privacy Layer ---
+    System(analytics_layer, "Analytics Privacy Layer", "Аналитика с PbD:\n- Data Lake (Bronze/Silver/Gold)\n- Anonymization Pipeline\n- BI/ML на обезличенных данных\n- Privacy Vault")
+    
+    ' --- Legacy (transitional) ---
+    System(legacy_1c, "1С Системы", "Переходный период:\n- 1С:Бухгалтерия\n- 1С:Торговля и склад\n(интеграция через API)")
+}
+
+' ==================== RELATIONSHIPS ====================
+
+' --- Patient interactions ---
+Rel(patient, patient_portal, "Запись, просмотр данных", "HTTPS/TLS 1.3")
+Rel(patient, cassier, "Оплата услуг", "Наличные/Карта")
+
+' --- Staff interactions ---
+Rel(reception, staff_portal, "Регистрация, расписание", "HTTPS + MFA")
+Rel(doctor, staff_portal, "Медкарты, приёмы", "HTTPS + MFA")
+Rel(cassier, staff_portal, "Касса, платежи", "HTTPS + MFA")
+Rel(bookkeeper, staff_portal, "Финансы, отчёты", "HTTPS + MFA")
+Rel(warehouse, staff_portal, "Учёт ТМЦ", "HTTPS + MFA")
+Rel(admin, privacy_layer, "Мониторинг, управление", "HTTPS + MFA + PAM")
+Rel(dpo, privacy_layer, "Аудит, compliance", "HTTPS + MFA")
+
+' --- Internal system flows ---
+Rel(patient_portal, privacy_layer, "Авторизация, consent", "Internal API")
+Rel(staff_portal, privacy_layer, "Авторизация, RBAC", "Internal API")
+Rel(privacy_layer, core_services, "Validated requests", "Internal API")
+Rel(core_services, data_layer, "CRUD с шифрованием", "TLS + Encryption")
+Rel(core_services, payment_service, "Платёжные операции", "Internal API")
+Rel(data_layer, analytics_layer, "ETL + Anonymization", "Secure Pipeline")
+Rel(analytics_layer, staff_portal, "BI-отчёты", "Aggregated only")
+
+' --- External integrations ---
+Rel(integration_hub, laboratory, "Результаты анализов", "REST API + mTLS")
+Rel(integration_hub, sms_gateway, "Оповещения", "REST API + TLS")
+Rel(payment_service, payment_provider, "Онлайн-платежи", "PCI DSS + TLS")
+Rel(payment_service, fns, "Фискальные данные", "ОФД API")
+Rel(core_services, legacy_1c, "Синхронизация", "API Gateway")
+
+' ==================== NOTES ====================
+note right of privacy_layer
+  Privacy by Design принципы:
+  1. Проактивность, встроенная защита
+  2. Конфиденциальность по умолчанию
+  3. Data Minimization
+  4. Purpose Limitation
+  5. Сквозное шифрование
+  6. Полный аудит операций
+  7. Consent Management
+end note
+
+note bottom of analytics_layer
+  Аналитический слой PbD:
+  - Автоматическая классификация данных
+  - K-anonymity / L-diversity
+  - Differential Privacy для ML
+  - Только агрегированные отчёты
+  - Privacy Vault для ключей связи
+end note
+
+note left of data_layer
+  Защита данных:
+  - AES-256 encryption at-rest
+  - TLS 1.3 in-transit
+  - Field-level encryption для ПДн
+  - Tokenization для идентификаторов
+  - HSM для критичных ключей
+end note
+
+@enduml
