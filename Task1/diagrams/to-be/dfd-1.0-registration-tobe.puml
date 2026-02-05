@@ -1,0 +1,130 @@
+@startuml DFD Process 1.0 - регистрация пациента (TO-BE)
+
+title DFD Process 1.0: регистрация пациента (TO-BE)
+caption С применением Privacy by Design и Data Minimization
+
+skinparam rectangle {
+    roundCorner 25
+}
+
+' === ВНЕШНИЕ СУЩНОСТИ ===
+rectangle "Пациент" as patient #lightgreen
+rectangle "Администратор" as admin #palegreen
+
+' === ЗАЩИТНЫЕ КОМПОНЕНТЫ ===
+rectangle "API Gateway\n(Валидация, Rate Limit)" as apigw #pink
+rectangle "Vault (KMS)" as vault #pink
+rectangle "SIEM" as siem #pink
+rectangle "Data Classifier" as classifier #pink
+
+' === ПОДПРОЦЕССЫ ===
+rectangle "1.1\nПолучение\nсогласия" as p11 #lightblue
+rectangle "1.2\nВалидация\nданных" as p12 #lightblue
+rectangle "1.3\nГенерация\nPatient UUID" as p13 #lightblue
+rectangle "1.4\nШифрование\nПДн" as p14 #lightblue
+rectangle "1.5\nТегирование\nданных" as p15 #lightblue
+rectangle "1.6\nСохранение\nв БД" as p16 #lightblue
+
+' === ХРАНИЛИЩА ===
+database "Consent Registry\nEncrypted" as consent_db #lightyellow
+database "Patient Registry\nPostgreSQL + TDE\n+ Field Encryption" as patient_db #lightyellow
+database "Document Storage\nS3 + AES-256" as doc_storage #lightyellow
+
+' === ПОТОКИ ДАННЫХ ===
+
+patient --> apigw : HTTPS/TLS 1.3\n[Минимальный набор ПДн]
+
+apigw --> p11 : Запрос согласия
+
+note right of p11
+  DATA MINIMIZATION:
+  Собираем только:
+  - ФИО (обязательно)
+  - Дату рождения
+  - Один контакт
+  
+  Не собираем без
+  необходимости:
+  - Паспорт
+  - Адрес
+  - Место работы
+end note
+
+p11 --> consent_db : Consent Record:\n- Consent ID\n- Дата согласия\n- Scope\n- Версия политики
+
+p11 --> p12 : Данные + Consent ID
+
+admin --> p12 : Верификация\n(при очном визите)
+
+p12 --> p13 : Валидированные данные
+
+p13 --> p14 : Patient UUID\n(заменяет ФИО в системе)
+
+p14 --> vault : Запрос ключа
+vault --> p14 : Patient-specific key
+
+p14 --> p15 : Encrypted data packet
+
+p15 --> classifier : Автоклассификация
+classifier --> p15 : Теги:\nTAG-PII-001 (ФИО)\nTAG-PII-003 (контакт)
+
+p15 --> p16 : Tagged & Encrypted data
+
+p16 --> patient_db : Структура записи:\n```\n{\n  uuid: "a1b2c3...",\n  fio_enc: "AES(...)",\n  dob_enc: "AES(...)",\n  contact_enc: "AES(...)",\n  tags: ["PII-001","PII-003"],\n  consent_id: "...",\n  created_at: "...",\n  created_by: "admin_uuid"\n}\n```
+
+admin --> doc_storage : Сканы документов\n(при необходимости)
+doc_storage --> vault : Запрос ключа шифрования
+
+' === АУДИТ ===
+p11 --> siem : LOG: CONSENT_GRANTED
+p13 --> siem : LOG: PATIENT_CREATED
+p16 --> siem : LOG: DATA_STORED
+doc_storage --> siem : LOG: DOCUMENT_UPLOADED
+
+note bottom of patient_db
+  ЗАЩИТА В БД:
+  
+  - TDE (Transparent Data Encryption)
+  - Field-level encryption для ПДн
+  - UUID вместо ФИО в индексах
+  - Нет ПДн в логах запросов
+  - RBAC: только роль ADMIN
+  - Row-level security
+end note
+
+note bottom of doc_storage
+  ЗАЩИТА ДОКУМЕНТОВ:
+  
+  - Путь: /documents/{uuid}/
+    (без ПДн)
+  - AES-256-GCM шифрование
+  - Версионирование
+  - Automatic retention (5 лет)
+  - Доступ по токену
+end note
+
+note right of siem
+  АУДИТ СОБЫТИЙ:
+  
+  Логируем:
+  - WHO: user_uuid
+  - WHAT: action_type
+  - WHEN: timestamp
+  - WHERE: system, IP
+  - DATA: patient_uuid
+    (не ПДн)
+end note
+
+legend right
+  РЕАЛИЗОВАННЫЕ ПРИНЦИПЫ:
+  
+  |= Принцип |= Реализация |
+  | Privacy by Default | Шифрование по умолчанию |
+  | Data Minimization | Минимальный сбор данных |
+  | Purpose Limitation | Consent с указанием целей |
+  | Storage Limitation | Retention policy 5 лет |
+  | Integrity | TDE + checksums |
+  | Accountability | Полный аудит в SIEM |
+endlegend
+
+@enduml
