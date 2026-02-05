@@ -1,0 +1,159 @@
+@startuml Data Classification Engine - C2 Container Diagram
+!includeurl https://raw.githubusercontent.com/RicardoNiepel/C4-PlantUML/master/C4_Container.puml
+
+title Движок классификации данных «Медикаменте» — C2 Container Diagram
+
+top to bottom direction
+
+' ==================== ВНЕШНИЕ СИСТЕМЫ (ИСТОЧНИКИ) ====================
+System_Ext(source_excel, "Файловый сервер AS-IS", "Excel-файлы: Patients.xlsx, Journal-Doctor-FIO.xlsx, RegistryByDate.xlsx")
+System_Ext(source_1c, "1С Системы", "1С Бухгалтерия, 1С Торговля и склад")
+System_Ext(source_lab, "Лаборатория", "Результаты анализов")
+
+' ==================== DATA CLASSIFICATION ENGINE ====================
+System_Boundary(classification_engine, "Data Classification Engine") {
+
+    ' --- Ingestion Layer ---
+    Container_Boundary(ingestion_layer, "Ingestion Layer") {
+        Container(file_connector, "File Connector", "Python/Pandas", "Загрузка Excel, CSV, JSON файлов")
+        Container(db_connector, "Database Connector", "Python/SQLAlchemy", "Подключение к 1С PostgreSQL/MSSQL")
+        Container(api_connector, "API Connector", "Python/Requests", "REST/SOAP интеграции")
+        Container(schema_registry, "Schema Registry", "Apache Avro/Confluent", "Хранение и версионирование схем данных")
+    }
+
+    ' --- Classification Layer ---
+    Container_Boundary(classification_layer, "Classification Layer") {
+
+        Container(schema_analyzer, "Schema Analyzer", "Python", "Анализ структуры данных, обнаружение изменений схемы")
+
+        Container(pii_detector, "PII/PHI Detector", "ML Model + Rules", "Обнаружение персональных данных:\n- Regex patterns (ФИО, паспорт, телефон)\n- NER модели (Named Entity Recognition)\n- Словари медицинских терминов")
+
+        Container(classification_rules, "Classification Rules Engine", "Drools/Python", "Применение правил классификации:\n- Уровень 1-4 (Basic -> Critical)\n- Категории: PII, PHI, FIN, INT")
+
+        Container(ml_classifier, "ML Classifier", "scikit-learn/TensorFlow", "ML-модель для неструктурированных данных:\n- Классификация текстов\n- Обнаружение чувствительных данных")
+
+        Container(tagging_service, "Data Tagging Service", "Python/FastAPI", "Присвоение тегов:\n- TAG-PHI-XXX, TAG-PII-XXX\n- Метаданные классификации")
+    }
+
+    ' --- Transformation Layer ---
+    Container_Boundary(transformation_layer, "Transformation Layer") {
+
+        Container(anonymization_engine, "Anonymization Engine", "ARX/Python", "Методы анонимизации:\n- K-anonymity (k≥5)\n- L-diversity\n- Differential Privacy\n- Pseudonymization")
+
+        Container(encryption_service, "Encryption Service", "Python/cryptography", "Шифрование полей:\n- AES-256-GCM\n- Envelope encryption\n- Интеграция с KMS")
+
+        Container(masking_service, "Data Masking Service", "Python", "Маскирование:\n- ФИО: И*** П***\n- Телефон: +7 *** *** XX-XX\n- Email: a***@***.ru")
+
+        Container(quality_checker, "Data Quality Checker", "Great Expectations", "Проверка качества:\n- Валидация форматов\n- Полнота данных\n- Согласованность")
+    }
+
+    ' --- Orchestration ---
+    Container(workflow_orchestrator, "Workflow Orchestrator", "Apache Airflow", "Оркестрация ETL-пайплайнов:\n- Расписание загрузок\n- Retry logic\n- Мониторинг")
+
+    Container(metadata_store, "Metadata Store", "PostgreSQL", "Хранение метаданных:\n- Результаты классификации\n- Lineage данных\n- Статистика")
+
+    Container(audit_logger, "Audit Logger", "ELK Stack", "Логирование:\n- Все операции с данными\n- Результаты классификации\n- Алерты")
+}
+
+' ==================== ANALYTICS DATA WAREHOUSE ====================
+System_Boundary(data_warehouse, "Analytics Data Warehouse (Medallion Architecture)") {
+
+    ContainerDb(bronze_layer, "Bronze Layer", "Delta Lake/PostgreSQL", "Сырые данные:\n- Encrypted at-rest\n- Classification tags\n- Pseudonymized IDs\n- Доступ: ETL only")
+
+    ContainerDb(silver_layer, "Silver Layer", "Delta Lake/PostgreSQL", "Очищенные данные:\n- Validated & cleansed\n- All PII tokenized\n- Referential integrity\n- Доступ: Data Engineers")
+
+    ContainerDb(gold_layer, "Gold Layer", "Delta Lake/PostgreSQL", "Анонимизированные данные:\n- K-anonymity applied\n- Aggregated metrics\n- No direct identifiers\n- Доступ: Analysts, BI")
+
+    ContainerDb(privacy_vault, "Privacy Vault", "HashiCorp Vault + PostgreSQL", "Token <-> ID mapping:\n- HSM-protected keys\n- Strict access (DPO only)\n- Re-identification audit")
+}
+
+' ==================== CONSUMERS ====================
+System_Ext(bi_platform, "BI Platform", "Metabase/Tableau - только Gold Layer")
+System_Ext(ml_platform, "ML Platform", "MLflow - Silver/Gold с согласованием")
+System_Ext(compliance, "Compliance & DPO", "Аудит, отчёты, Privacy Vault")
+
+' ==================== SECURITY SERVICES ====================
+System_Ext(kms, "Key Management Service", "HashiCorp Vault + HSM")
+System_Ext(iam, "IAM Service", "Keycloak - OAuth2, RBAC")
+
+' ==================== RELATIONSHIPS ====================
+
+' Sources → Ingestion
+Rel(source_excel, file_connector, "Excel/CSV файлы", "SFTP/SMB 3.0")
+Rel(source_1c, db_connector, "Данные 1С", "JDBC/ODBC")
+Rel(source_lab, api_connector, "Результаты анализов", "REST API/S/MIME")
+
+' Ingestion internal
+Rel(file_connector, schema_registry, "Регистрация схемы")
+Rel(db_connector, schema_registry, "Регистрация схемы")
+Rel(api_connector, schema_registry, "Регистрация схемы")
+
+' Ingestion → Classification
+Rel(schema_registry, schema_analyzer, "Схема данных")
+Rel(schema_analyzer, pii_detector, "Структура + данные")
+Rel(pii_detector, classification_rules, "Обнаруженные PII/PHI")
+Rel(pii_detector, ml_classifier, "Неструктурированные данные")
+Rel(ml_classifier, classification_rules, "ML predictions")
+Rel(classification_rules, tagging_service, "Уровень классификации")
+
+' Classification → Transformation
+Rel(tagging_service, anonymization_engine, "Tagged data (Level 3-4)")
+Rel(tagging_service, encryption_service, "Tagged data (Level 2-4)")
+Rel(tagging_service, masking_service, "Tagged data (для отображения)")
+Rel(anonymization_engine, quality_checker, "Anonymized data")
+Rel(encryption_service, quality_checker, "Encrypted data")
+
+' Orchestration
+Rel(workflow_orchestrator, file_connector, "Trigger ETL")
+Rel(workflow_orchestrator, db_connector, "Trigger ETL")
+Rel(workflow_orchestrator, api_connector, "Trigger ETL")
+Rel(tagging_service, metadata_store, "Classification results")
+Rel(quality_checker, metadata_store, "Quality metrics")
+Rel(tagging_service, audit_logger, "Audit events")
+
+' → Data Warehouse
+Rel(quality_checker, bronze_layer, "Raw + Tags", "Batch")
+Rel(bronze_layer, silver_layer, "ETL + Tokenization")
+Rel(silver_layer, gold_layer, "Anonymization")
+Rel(silver_layer, privacy_vault, "Token mapping")
+
+' Consumers
+Rel(gold_layer, bi_platform, "Anonymized data", "JDBC/REST")
+Rel(silver_layer, ml_platform, "Pseudonymized data", "JDBC/REST")
+Rel(gold_layer, ml_platform, "Anonymized data", "JDBC/REST")
+Rel(privacy_vault, compliance, "Re-identification (audit)")
+Rel(metadata_store, compliance, "Classification reports")
+
+' Security
+Rel(encryption_service, kms, "Get/Rotate keys", "API")
+Rel(anonymization_engine, kms, "Get keys", "API")
+Rel(workflow_orchestrator, iam, "Auth", "OAuth2")
+
+' ==================== NOTES ====================
+
+note right of classification_layer
+  Ключевые возможности:
+  1. Автоматическое обнаружение PII/PHI
+  2. ML-классификация неструктурированных данных
+  3. Адаптация к изменениям схемы
+  4. Версионирование правил классификации
+end note
+
+note right of data_warehouse
+  Medallion Architecture:
+  Bronze -> Silver -> Gold
+
+  Каждый слой добавляет уровень
+  защиты и анонимизации данных
+end note
+
+note bottom of privacy_vault
+  Privacy Vault:
+  - Единственное место связи
+    Token ↔ Real ID
+  - HSM-защита ключей
+  - Доступ только для DPO
+  - Полный аудит
+end note
+
+@enduml
