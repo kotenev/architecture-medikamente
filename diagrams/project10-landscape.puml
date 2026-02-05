@@ -1,0 +1,101 @@
+@startuml MEDIKAMENTE Container diagram (AS-IS)
+!includeurl https://raw.githubusercontent.com/RicardoNiepel/C4-PlantUML/master/C4_Container.puml
+
+title МЕДИКАМЕНТЕ Container diagram (AS-IS)
+
+top to bottom direction
+
+' ==================== ACTORS ====================
+Person(administrator, "Administrator", "Сотрудник ресепшена")
+Person(bookkeeper, "Bookkeeper", "Бухгалтер")
+Person(cassier, "Cassier", "Кассир")
+Person(warehouse_keeper, "Warehouse keeper", "Сотрудник склада")
+Person(doctor, "Doctor", "Специалист-медик")
+Person_Ext(patient, "Patient", "Пациент")
+
+' ==================== EXTERNAL SYSTEMS ====================
+System_Ext(laboratory, "Laboratory", "Медицинская лаборатория")
+
+' ==================== MEDIKAMENTE SYSTEM BOUNDARY ====================
+System_Boundary(medikamente, "МЕДИКАМЕНТЕ") {
+
+    ' ---------- File Server Subsystem ----------
+    Container_Boundary(file_server, "FileServer") {
+
+        Container_Boundary(file_system, "File system [Хранилище файлов на диске]") {
+
+            ' --- Journals Folder ---
+            ContainerDb(journal_doctor, "Journal-Doctor-FIO", "Excel file", "Журнал записей к одному специалисту. Содержит ФИО пациентов, даты, время приёма")
+
+            ' --- Patients Folder ---
+            ContainerDb(patients_list, "Patients", "Excel file", "Список пациентов: ФИО, дата рождения, контакты, паспортные данные")
+
+            ' --- Patient Data Folder (Pacient1-FIO-BD) ---
+            ContainerDb(patient_data_files, "Data file", "Any file", "Файлы пациента: результаты анализов, снимки, заключения врачей")
+
+            ' --- Laboratory Registry Folder ---
+            ContainerDb(registry_by_date, "RegistryByDate", "Excel file", "Реестр анализов за день: ФИО пациентов, виды анализов, результаты")
+        }
+    }
+
+    ' ---------- Business Systems ----------
+    Container(accounting_1c, "1C Бухгалтерия предприятия", "1C, File mode", "Бухгалтерская система учёта. Работает в файловом режиме. Хранит данные о платежах, клиентах")
+    Container(warehouse_1c, "1C Торговля и склад", "1C, File mode", "Складская система учёта. Работает в файловом режиме. Учёт ТМЦ, медикаментов")
+    Container(kkm, "ККМ", "Hardware/Software", "Контрольно-кассовая машина. Приём платежей, печать чеков")
+    Container(mail_server, "Exchange Mail Server", "Microsoft Exchange", "Почтовый сервис внутренней почты")
+}
+
+' ==================== RELATIONSHIPS ====================
+
+' --- Staff to Systems ---
+Rel(administrator, journal_doctor, "Запись пациента к специалисту", "SMB/CIFS")
+Rel(administrator, patients_list, "Регистрация пациента в системе", "SMB/CIFS")
+Rel(administrator, patient_data_files, "Регистрация файла с данными пациента", "SMB/CIFS")
+
+Rel(doctor, journal_doctor, "Просмотр и редактирование своего журнала", "SMB/CIFS")
+
+Rel(bookkeeper, accounting_1c, "Процессинг платежей", "1C Client")
+
+Rel(warehouse_keeper, warehouse_1c, "Учет ТМЦ", "1C Client")
+
+Rel(cassier, kkm, "Принятие оплаты", "Direct")
+
+' --- Patient interactions ---
+Rel(patient, cassier, "Оплата за медицинские услуги", "Наличные/Карта")
+
+' --- System integrations ---
+Rel(kkm, accounting_1c, "Информация о принятии денежных средств", "TCP/IP-OLE")
+Rel_Neighbor(accounting_1c, warehouse_1c, "Внутриплатформенный обмен данными", "OLE")
+
+' --- External integrations ---
+Rel(laboratory, registry_by_date, "Результаты анализов", "Email/Файлы")
+
+' ==================== SECURITY CONCERNS (AS-IS) ====================
+
+note right of file_system
+  **КРИТИЧЕСКИЕ ПРОБЛЕМЫ БЕЗОПАСНОСТИ:**
+  * Персональные данные (ФИО, паспорт, дата рождения)
+    хранятся в незашифрованных Excel-файлах
+  * Медицинские данные (диагнозы, анализы)
+    доступны всем сотрудникам через общую папку
+  * Нет разграничения доступа к файлам пациентов
+  * Нет аудита доступа к конфиденциальным данным
+  * Имена папок содержат ПДн (ФИО-ДатаРождения)
+  * Нет шифрования данных at-rest и in-transit
+end note
+
+note left of accounting_1c
+  **РИСКИ 1C в файловом режиме:**
+  * Данные клиентов не зашифрованы
+  * Слабая аутентификация
+  * Нет централизованного аудита
+  * Платёжная информация в открытом виде
+end note
+
+note bottom of kkm
+  **РИСКИ ККМ:**
+  * Данные чеков содержат ПДн
+  * Передача по незащищённому каналу
+end note
+
+@enduml

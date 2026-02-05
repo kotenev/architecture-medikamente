@@ -1,0 +1,133 @@
+@startuml DFD Level 1 - Медикаменте (TO-BE)
+
+title DFD Level 1: Целевое состояние с мерами защиты (TO-BE)
+caption Применение Privacy by Design, Data Minimization, шифрования
+
+skinparam rectangle {
+    roundCorner 25
+}
+
+' === ВНЕШНИЕ СУЩНОСТИ ===
+rectangle "Пациент" as patient #lightgreen
+rectangle "Мед. лаборатория" as lab #lightgreen
+rectangle "Налоговые органы" as tax #lightgreen
+
+' === ЗАЩИТНЫЕ КОМПОНЕНТЫ ===
+rectangle "API Gateway\n+ OAuth 2.0" as apigw #pink
+rectangle "Vault\n(Key Management)" as vault #pink
+rectangle "SIEM\n(Аудит)" as siem #pink
+rectangle "Data Catalog\n(Тегирование)" as catalog #pink
+
+' === ПРОЦЕССЫ ===
+rectangle "1.0\nРегистрация\nпациента" as p1 #lightblue
+rectangle "2.0\nЗапись к\nспециалисту" as p2 #lightblue
+rectangle "3.0\nПриём\nпациента" as p3 #lightblue
+rectangle "4.0\nОбработка\nанализов" as p4 #lightblue
+rectangle "5.0\nОплата\nуслуг" as p5 #lightblue
+rectangle "6.0\nБухгалтерский\nучёт" as p6 #lightblue
+
+' === ХРАНИЛИЩА (ЗАЩИЩЁННЫЕ) ===
+database "D1: Patient Registry\nPostgreSQL + TDE\nTAG-PII-*" as d1 #lightyellow
+database "D2: Appointments\nPostgreSQL + TDE\nПсевдонимизация" as d2 #lightyellow
+database "D3: Medical Records\nS3 + AES-256\nTAG-PHI-*\nField Encryption" as d3 #lightyellow
+database "D4: Lab Results\nPostgreSQL + TDE\nTAG-PHI-*" as d4 #lightyellow
+database "D5: Finance DB\n1С Server + TDE" as d5 #lightyellow
+
+' === ЗАЩИЩЁННЫЕ ПОТОКИ ===
+
+patient --> apigw : HTTPS/TLS 1.3\n[Регистрация]
+apigw --> p1 : Валидированные данные\n+ Consent ID
+
+p1 --> vault : Запрос ключа\nшифрования
+vault --> p1 : AES-256 key
+
+p1 --> d1 : Зашифрованные ПДн:\n- UUID (вместо ФИО)\n- Encrypted fields\nTAG-PII-001
+
+p1 --> siem : Audit log:\nCREATE_PATIENT
+
+patient --> apigw : HTTPS/TLS 1.3\n[Запись]
+apigw --> p2 : Token + Patient UUID
+
+p2 <--> d2 : Псевдонимизированные\nзаписи [UUID, slot_id]
+p2 --> siem : Audit log
+
+p3 <--> d3 : Двойное шифрование:\n- TDE (at-rest)\n- Field encryption (диагнозы)\nTAG-PHI-001, TAG-PHI-002
+p3 --> siem : Audit log:\nACCESS_MEDICAL_RECORD
+
+lab --> apigw : mTLS + S/MIME\n[Результаты анализов]
+apigw --> p4 : Верифицированные данные
+
+p4 --> d4 : Encrypted results\nTAG-PHI-002
+p4 --> siem : Audit log
+
+p5 <--> d5 : TLS + Tokenization\n[Платежи]
+p5 --> siem : Audit log:\nPAYMENT
+
+p6 --> tax : Защищённый канал\n[Отчётность]
+
+' === МЕХАНИЗМЫ ЗАЩИТЫ ===
+
+catalog --> d1 : Автоматическое\nтегирование
+catalog --> d3 : Классификация\nданных
+catalog --> d4 : Обнаружение\nПДн
+
+note right of apigw
+  API Gateway:
+  - Аутентификация OAuth 2.0
+  - Rate limiting
+  - Input validation
+  - JWT токены
+  - mTLS для внешних систем
+end note
+
+note right of vault
+  Key Management:
+  - HSM для критичных ключей
+  - Автоматическая ротация
+  - Аудит доступа к ключам
+  - Раздельные ключи по категориям
+end note
+
+note right of siem
+  SIEM (Аудит):
+  - Все операции с ПДн
+  - Доступ к спец. ПДн
+  - Аномалии поведения
+  - Алертинг
+end note
+
+note bottom of d3
+  ЗАЩИТА МЕДДАННЫХ:
+  
+  - AES-256 шифрование
+  - Field-level encryption
+  - RBAC по ролям врачей
+  - Consent management
+  - Data lineage
+  - Retention policy
+  
+  Структура папок:
+  /records/{uuid}/
+  (без ПДн в пути)
+end note
+
+legend right
+  ПРИМЕНЁННЫЕ ПРИНЦИПЫ:
+  
+  Privacy by Design:
+  - Шифрование по умолчанию
+  - Минимизация данных
+  - Разграничение доступа
+  
+  Data Minimization:
+  - Сбор только необходимых данных
+  - Псевдонимизация
+  - Retention policies
+  
+  Data Lineage:
+  - Тегирование всех данных
+  - Отслеживание происхождения
+  - Полный аудит
+endlegend
+
+@enduml

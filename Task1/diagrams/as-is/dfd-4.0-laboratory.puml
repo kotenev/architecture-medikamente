@@ -1,0 +1,130 @@
+@startuml DFD Process 4.0 - Обработка анализов (TO-BE)
+
+title DFD Process 4.0: Интеграция с лабораторией (TO-BE)
+caption Защищённый API-обмен вместо email
+
+skinparam rectangle {
+    roundCorner 25
+}
+
+' === ВНЕШНИЕ СУЩНОСТИ ===
+rectangle "Медицинская\nлаборатория" as lab #lightgreen
+rectangle "Врач" as doctor #palegreen
+rectangle "Пациент" as patient #lightgreen
+
+' === ЗАЩИТНЫЕ КОМПОНЕНТЫ ===
+rectangle "API Gateway\n+ mTLS" as apigw #pink
+rectangle "Vault (KMS)" as vault #pink
+rectangle "SIEM" as siem #pink
+rectangle "Data Classifier" as classifier #pink
+rectangle "Notification\nService" as notify #pink
+
+' === ПОДПРОЦЕССЫ ===
+rectangle "4.1\nПриём данных\nчерез API" as p41 #lightblue
+rectangle "4.2\nВалидация и\nверификация" as p42 #lightblue
+rectangle "4.3\nШифрование\nрезультатов" as p43 #lightblue
+rectangle "4.4\nТегирование\n(PHI)" as p44 #lightblue
+rectangle "4.5\nСохранение" as p45 #lightblue
+rectangle "4.6\nУведомление" as p46 #lightblue
+
+' === ХРАНИЛИЩА ===
+database "Lab Results DB\nPostgreSQL + TDE\n+ Field Encryption\nTAG-PHI-002" as results_db #lightyellow
+database "Patient Registry\n(для UUID lookup)" as patient_db #lightyellow
+database "Notification Queue\n(псевдонимы)" as notify_queue #lightyellow
+
+' === ЗАЩИЩЁННЫЕ ПОТОКИ ===
+
+lab --> apigw : mTLS + API Key**\nSigned payload (JWS)**\n```json\n{\n  "lab_id": "LAB001",\n  "patient_ref": "encrypted",\n  "results": [...],\n  "signature": "..."\n}\n```
+
+apigw --> p41 : Верифицированный запрос
+
+note right of apigw
+  API Gateway:
+  - mTLS (mutual TLS)
+  - API Key validation
+  - Rate limiting
+  - Request signing (JWS)
+  - IP whitelist
+  - Schema validation
+end note
+
+p41 --> p42 : Raw payload
+
+p42 --> vault : Запрос ключа\nдля расшифровки\npatient_ref
+vault --> p42 : Decryption key
+
+p42 <--> patient_db : Lookup:\npatient_ref → UUID
+p42 --> p43 : Validated data\n+ Patient UUID
+
+p43 --> vault : Запрос ключа\nшифрования
+vault --> p43 : PHI encryption key
+
+p43 --> p44 : Encrypted results
+
+p44 --> classifier : Автоклассификация
+classifier --> p44 : TAG-PHI-002\nTAG-MEDICAL-LAB
+
+p44 --> p45 : Tagged data
+
+p45 --> results_db : Encrypted Record:\n```json\n{\n  "id": "uuid",\n  "patient_uuid": "...",\n  "lab_id": "LAB001",\n  "results_enc": "AES(...)",\n  "result_type": "BLOOD_TEST",\n  "tags": ["PHI-002"],\n  "received_at": "...",\n  "signature": "..."\n}\n```
+
+p45 --> p46 : Trigger notification
+
+p46 --> notify_queue : Notification request:\n(только UUID, без ПДн)
+
+notify --> patient : Push/SMS:\n'Результаты анализов\nготовы в ЛК'
+
+doctor <-- results_db : Доступ по RBAC:\n- Только свои пациенты\n- Расшифровка on-demand\n- Audit logged
+
+' === АУДИТ ===
+p41 --> siem : LOG: LAB_DATA_RECEIVED
+p42 --> siem : LOG: DATA_VALIDATED
+p45 --> siem : LOG: PHI_STORED
+doctor --> siem : LOG: PHI_ACCESSED
+
+note bottom of results_db
+  ЗАЩИТА РЕЗУЛЬТАТОВ:
+  
+  TDE + Field encryption
+  Результаты: AES-256-GCM
+  Доступ: врач пациента
+  Retention: 25 лет (мед. данные)
+  Backup: encrypted
+  Audit: все обращения
+end note
+
+note left of p42
+  ВАЛИДАЦИЯ:
+  
+  1. Проверка подписи JWS
+  2. Проверка API Key
+  3. Schema validation
+  4. Проверка lab_id
+  5. Lookup patient_ref
+  6. Проверка consent
+end note
+
+note bottom of lab
+  ТРЕБОВАНИЯ К ЛАБОРАТОРИИ:
+  
+  Сертификат mTLS
+  API Key
+  Подписание запросов
+  Шифрование patient_ref
+  Соглашение о защите данных
+end note
+
+legend right
+  СРАВНЕНИЕ AS-IS vs TO-BE:
+  
+  |= Аспект |= AS-IS |= TO-BE |
+  | Канал | Email (SMTP) | API (mTLS) |
+  | Аутентификация | Нет | mTLS + API Key |
+  | Шифрование in-transit | Нет | TLS 1.3 |
+  | Шифрование at-rest | Нет | AES-256 |
+  | Целостность | Нет | JWS signing |
+  | Аудит | Нет | Полный |
+  | Автоматизация | Ручная | Автоматическая |
+endlegend
+
+@enduml
